@@ -59,7 +59,7 @@ const kategoriLabel = {
   kategori3: "RT Kidul",
 };
 
-// State in-memory yang cepat
+// State in-memory super cepat
 let dataDonasi = [];
 let dataCache = {
   kategori1: new Map(),
@@ -75,8 +75,6 @@ let donaturTerinput = {
 
 // DOM cache
 const cachedElements = {};
-
-// DB reference (global instance dari db.js)
 let db = null;
 
 // ======= INIT =======
@@ -86,23 +84,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     db = jimpitanDB;
     await db.init();
-    logger.log("✅ Database initialized");
-    await preloadCache("kategori1");
+
+    // ⚡ Preload semua kategori ke RAM agar switching instan
+    await preloadAllKategori();
+
+    // Tampilkan kategori default (RT Tengah)
+    await Promise.all([
+      initializeCachedElements(),
+      loadDataHariIni("kategori1"),
+      muatDropdown("kategori1"),
+    ]);
+
+    setupEventListeners();
   } catch (err) {
     logger.error("❌ DB init failed:", err);
     showNotification("Gagal menginisialisasi penyimpanan offline", false);
   }
 
-  // inisialisasi DOM cache & operasi awal secara paralel
-  await Promise.all([
-    initializeCachedElements(),
-    loadDataHariIni("kategori1"),
-    muatDropdown("kategori1"),
-  ]);
-
-  setupEventListeners();
-
-  // Tampilkan elemen critical secara efisien
   requestAnimationFrame(() => {
     document.querySelectorAll(".critical-hidden").forEach((el) => {
       el.classList.remove("critical-hidden");
@@ -126,8 +124,6 @@ function initializeCachedElements() {
     btnHapus: "btnHapus",
     tabelDonasi: "tabelDonasi",
     totalDonasi: "totalDonasi",
-    dataStatus: "dataStatus",
-    dataInfo: "dataInfo",
     dataCount: "dataCount",
     btnRefresh: "btnRefresh",
   };
@@ -135,7 +131,6 @@ function initializeCachedElements() {
     cachedElements[k] = document.getElementById(map[k]);
   });
 
-  // Set tanggal
   if (cachedElements.tanggalHariIni) {
     const tanggalHariIni = new Date().toLocaleDateString("id-ID", {
       weekday: "long",
@@ -147,9 +142,29 @@ function initializeCachedElements() {
   }
 }
 
+// ======= PRELOAD SEMUA DATA =======
+async function preloadAllKategori() {
+  try {
+    const kategoriList = Object.keys(kategoriDonatur);
+    const today = new Date().toLocaleDateString("id-ID");
+
+    await Promise.all(
+      kategoriList.map(async (kategori) => {
+        const saved = await db.getDailyInputs(kategori, today).catch(() => []);
+        dataCache[kategori] = new Map(saved.map((it) => [it.donatur, it]));
+        donaturTerinput[kategori] = new Set(saved.map((it) => it.donatur));
+        dataCache.timestamp.set(kategori, Date.now());
+      })
+    );
+
+    logger.log("✅ Semua kategori telah di-preload ke memori");
+  } catch (err) {
+    logger.error("⚠️ Gagal preload semua kategori:", err);
+  }
+}
+
 // ======= EVENT LISTENERS =======
 function setupEventListeners() {
-  // Delegation quick amount
   document.addEventListener("click", (e) => {
     const target = e.target.closest && e.target.closest(".quick-amount");
     if (target) {
@@ -161,7 +176,6 @@ function setupEventListeners() {
     }
   });
 
-  // Buttons
   if (cachedElements.btnTambah)
     cachedElements.btnTambah.addEventListener("click", tambahData);
   if (cachedElements.btnExport)
@@ -169,36 +183,18 @@ function setupEventListeners() {
   if (cachedElements.btnHapus)
     cachedElements.btnHapus.addEventListener("click", hapusDataHariIni);
 
-  // kategori change (debounced minimal)
   if (cachedElements.kategoriDonatur) {
     cachedElements.kategoriDonatur.addEventListener(
       "change",
       debounce(async function () {
         const kategori = this.value;
-        showNotification("🔄 Memuat data...", true);
-        try {
-          await loadDataHariIni(kategori);
-          await muatDropdown(kategori);
-          logger.log("✅ Kategori switched:", kategori);
-        } catch (e) {
-          logger.error("❌ Switch kategori error:", e);
-          showNotification("Gagal memuat data kategori", false);
-        } finally {
-          // clear notif jika masih memuat
-          setTimeout(() => {
-            const notif = cachedElements.notifikasi;
-            if (notif && notif.textContent.includes("Memuat data")) {
-              notif.textContent = "";
-              notif.className =
-                "mb-4 md:mb-6 text-center p-3 md:p-4 rounded-xl transition-all duration-300";
-            }
-          }, 400);
-        }
-      }, 150)
+        // Tidak ada loading lagi di sini!
+        await loadDataHariIni(kategori);
+        await muatDropdown(kategori);
+      }, 100)
     );
   }
 
-  // pemasukan input sanitize
   if (cachedElements.pemasukan) {
     cachedElements.pemasukan.addEventListener(
       "input",
@@ -210,112 +206,54 @@ function setupEventListeners() {
     );
   }
 
-  // auto focus ringan
-  setTimeout(() => {
-    if (cachedElements.pemasukan) cachedElements.pemasukan.focus();
-  }, 120);
-
-  // refresh (soft) via reload
   if (cachedElements.btnRefresh) {
     cachedElements.btnRefresh.addEventListener("click", () => {
-      logger.log("🔄 Refresh triggered");
       window.location.reload();
     });
-  }
-}
-
-// ======= CACHE PRELOAD =======
-async function preloadCache(kategori) {
-  try {
-    if (!db || typeof db.getCache !== "function") return;
-    const today = new Date().toLocaleDateString("id-ID");
-    const key = `${kategori}_${today}`;
-    const cached = await db.getCache(key);
-    if (cached && Array.isArray(cached)) {
-      dataCache[kategori] = new Map(cached.map((item) => [item.donatur, item]));
-      dataCache.timestamp.set(kategori, Date.now());
-    }
-  } catch (e) {
-    logger.warn("⚠️ Cache preload failed:", e && e.message);
   }
 }
 
 // ======= LOAD & RENDER DATA =======
 async function loadDataHariIni(kategori) {
   const today = new Date().toLocaleDateString("id-ID");
-  const cacheKey = `${kategori}_${today}`;
 
-  // fast path: in-memory cache fresh <30s
-  const ts = dataCache.timestamp.get(kategori);
-  if (ts && Date.now() - ts < 30000) {
-    const cachedArray = Array.from(dataCache[kategori].values()).filter(
+  // ⚡ Langsung tampil dari RAM tanpa tunggu DB
+  const cachedMap = dataCache[kategori];
+  if (cachedMap && cachedMap.size > 0) {
+    dataDonasi = Array.from(cachedMap.values()).filter(
       (it) => it.tanggal === today
     );
-    dataDonasi = cachedArray.map((it) => ({
-      donatur: it.donatur,
-      nominal: it.nominal,
-      tanggal: it.tanggal,
-      kategori: it.kategori,
-      id: it.id,
-    }));
     donaturTerinput[kategori] = new Set(dataDonasi.map((it) => it.donatur));
     renderTabelTerurut(kategori);
     updateTotalDisplay();
     updateDataCount();
+
+    // Sinkron background (tidak mengganggu UI)
+    db.getDailyInputs(kategori, today)
+      .then((savedData) => {
+        dataCache[kategori] = new Map(savedData.map((it) => [it.donatur, it]));
+        dataCache.timestamp.set(kategori, Date.now());
+      })
+      .catch(() => {});
     return;
   }
 
+  // fallback jika cache kosong
   try {
     const savedData = await db.getDailyInputs(kategori, today);
-
-    // set in-memory cache & timestamp
-    dataCache[kategori] = new Map(
-      (savedData || []).map((item) => [item.donatur, item])
-    );
-    dataCache.timestamp.set(kategori, Date.now());
-
-    // persist cache best-effort
-    if (typeof db.setCache === "function") {
-      db.setCache(cacheKey, savedData, 300000).catch(() => {});
-    }
-
-    dataDonasi = (savedData || []).map((item) => ({
-      donatur: item.donatur,
-      nominal: item.nominal,
-      tanggal: item.tanggal,
-      kategori: item.kategori,
-      id: item.id,
-    }));
-
-    donaturTerinput[kategori] = new Set(dataDonasi.map((it) => it.donatur));
-
+    dataCache[kategori] = new Map(savedData.map((it) => [it.donatur, it]));
+    donaturTerinput[kategori] = new Set(savedData.map((it) => it.donatur));
+    dataDonasi = savedData;
     renderTabelTerurut(kategori);
     updateTotalDisplay();
     updateDataCount();
   } catch (error) {
     logger.error("❌ loadDataHariIni error:", error);
-    // fallback
-    try {
-      const fd = await db.getDailyInputsFallback(kategori, today);
-      dataDonasi = (fd || []).map((item) => ({
-        donatur: item.donatur,
-        nominal: item.nominal,
-        tanggal: item.tanggal,
-        kategori: item.kategori,
-        id: item.id,
-      }));
-      donaturTerinput[kategori] = new Set(dataDonasi.map((it) => it.donatur));
-      renderTabelTerurut(kategori);
-      updateTotalDisplay();
-      updateDataCount();
-    } catch (e) {
-      logger.error("❌ fallback load failed:", e);
-      dataDonasi = [];
-      donaturTerinput[kategori] = new Set();
-      renderTabelTerurut(kategori);
-      updateTotalDisplay();
-      updateDataCount();
-    }
+    dataDonasi = [];
+    donaturTerinput[kategori] = new Set();
+    renderTabelTerurut(kategori);
+    updateTotalDisplay();
+    updateDataCount();
   }
 }
 
@@ -325,7 +263,7 @@ async function tambahData() {
   const nominal = cachedElements.pemasukan?.value;
   const kategori = cachedElements.kategoriDonatur?.value || "kategori1";
 
-  if (!donatur || donatur === "" || nominal === "") {
+  if (!donatur || nominal === "") {
     showNotification("Nama dan nominal tidak boleh kosong", false);
     return;
   }
@@ -333,55 +271,28 @@ async function tambahData() {
   const tanggal = new Date().toLocaleDateString("id-ID");
 
   try {
-    const existingInCache = dataCache[kategori].get(donatur);
-    const existingIndex = dataDonasi.findIndex(
-      (item) => item.donatur === donatur
-    );
-
-    if (existingIndex !== -1 || existingInCache) {
-      // Update existing record
-      const itemId = existingInCache?.id || dataDonasi[existingIndex].id;
-      if (existingIndex !== -1) {
-        dataDonasi[existingIndex].nominal = nominal;
-        dataDonasi[existingIndex].tanggal = tanggal;
-      }
-      if (existingInCache) {
-        dataCache[kategori].set(donatur, {
-          ...existingInCache,
-          nominal,
-          tanggal,
-        });
-      }
-      if (itemId) await db.updateDailyInput(itemId, { nominal, tanggal });
+    const existing = dataCache[kategori].get(donatur);
+    if (existing) {
+      await db.updateDailyInput(existing.id, { nominal, tanggal });
+      existing.nominal = nominal;
       showNotification(`✏️ Data ${donatur} diperbarui`, true);
     } else {
       const newData = { donatur, nominal, tanggal, kategori };
       const newId = await db.saveDailyInput(newData);
       newData.id = newId;
-      dataDonasi.push(newData);
-      donaturTerinput[kategori].add(donatur);
       dataCache[kategori].set(donatur, newData);
-
-      if (parseInt(nominal) === 0) {
-        showNotification(`✅ Data ${donatur} disimpan (tidak mengisi)`, true);
-      } else {
-        showNotification(`✅ Data ${donatur} berhasil disimpan`, true);
-      }
+      donaturTerinput[kategori].add(donatur);
+      showNotification(`✅ Data ${donatur} berhasil disimpan`, true);
     }
 
-    // batch UI update
-    requestAnimationFrame(() => {
-      renderTabelTerurut(kategori);
-      updateTotalDisplay();
-      updateDataCount();
-    });
-
+    dataDonasi = Array.from(dataCache[kategori].values());
+    renderTabelTerurut(kategori);
+    updateTotalDisplay();
+    updateDataCount();
     await muatDropdown(kategori);
 
-    if (cachedElements.pemasukan) cachedElements.pemasukan.value = "";
-    setTimeout(() => {
-      if (cachedElements.pemasukan) cachedElements.pemasukan.focus();
-    }, 50);
+    cachedElements.pemasukan.value = "";
+    cachedElements.pemasukan.focus();
   } catch (e) {
     logger.error("❌ tambahData error:", e);
     showNotification("Gagal menyimpan data", false);
@@ -390,102 +301,39 @@ async function tambahData() {
 
 async function exportData() {
   const kategori = cachedElements.kategoriDonatur?.value || "kategori1";
-  if (!dataDonasi || dataDonasi.length === 0) {
+  if (!dataDonasi.length) {
     showNotification("Tidak ada data untuk diexport", false);
     return;
   }
-
-  try {
-    const sortedData = getSortedDataDonasi(kategori);
-    const csvContent = generateCSVContent(sortedData, kategori);
-    downloadCSV(csvContent, kategori);
-    showNotification(
-      `✅ Data berhasil diexport untuk ${kategoriLabel[kategori]}`,
-      true
-    );
-  } catch (e) {
-    logger.error("❌ exportData error:", e);
-    showNotification("Gagal mengexport data", false);
-  }
+  const sortedData = getSortedDataDonasi(kategori);
+  const csv = generateCSVContent(sortedData, kategori);
+  downloadCSV(csv, kategori);
+  showNotification(
+    `✅ Data berhasil diexport untuk ${kategoriLabel[kategori]}`,
+    true
+  );
 }
 
 async function hapusDataHariIni() {
   const kategori = cachedElements.kategoriDonatur?.value || "kategori1";
   const today = new Date().toLocaleDateString("id-ID");
-
-  if (!dataDonasi || dataDonasi.length === 0) {
-    showNotification("Tidak ada data untuk dihapus", false);
-    return;
-  }
-
-  if (
-    !confirm(
-      `Apakah Anda yakin ingin menghapus semua data hari ini untuk ${kategoriLabel[kategori]}?`
-    )
-  )
+  if (!confirm(`Hapus semua data hari ini untuk ${kategoriLabel[kategori]}?`))
     return;
 
   try {
-    let result;
-    if (typeof db.deleteDailyInputsByDate === "function") {
-      result = await db.deleteDailyInputsByDate(kategori, today);
-    } else {
-      result = await db.deleteDailyInputsByDateFallback(kategori, today);
-    }
-
+    await db.deleteDailyInputsByDate(kategori, today);
     dataCache[kategori].clear();
-    dataCache.timestamp.delete(kategori);
+    donaturTerinput[kategori].clear();
     dataDonasi = [];
-    donaturTerinput[kategori] = new Set();
-
-    requestAnimationFrame(() => {
-      const tbody = cachedElements.tabelDonasi.querySelector("tbody");
-      tbody.innerHTML = "";
-      updateTotalDisplay();
-      updateDataCount();
-    });
-
+    renderTabelTerurut(kategori);
+    updateTotalDisplay();
+    updateDataCount();
     await muatDropdown(kategori);
     showNotification("🗑️ Data hari ini berhasil dihapus", true);
-  } catch (error) {
-    logger.error("❌ delete all error:", error);
-    // try fallback individual deletes
-    try {
-      await deleteDataIndividually(kategori, today);
-      dataCache[kategori].clear();
-      dataCache.timestamp.delete(kategori);
-      dataDonasi = [];
-      donaturTerinput[kategori] = new Set();
-      requestAnimationFrame(() => {
-        const tbody = cachedElements.tabelDonasi.querySelector("tbody");
-        tbody.innerHTML = "";
-        updateTotalDisplay();
-        updateDataCount();
-      });
-      await muatDropdown(kategori);
-      showNotification("🗑️ Data hari ini berhasil dihapus", true);
-    } catch (e) {
-      logger.error("❌ All delete methods failed:", e);
-      showNotification("Gagal menghapus data", false);
-    }
+  } catch (e) {
+    logger.error("❌ hapusDataHariIni error:", e);
+    showNotification("Gagal menghapus data", false);
   }
-}
-
-async function deleteDataIndividually(kategori, tanggal) {
-  const savedData = await db.getDailyInputs(kategori, tanggal);
-  let successCount = 0,
-    errorCount = 0;
-  for (const item of savedData) {
-    try {
-      await db.deleteDailyInput(item.id);
-      successCount++;
-    } catch (e) {
-      errorCount++;
-      logger.error("❌ Failed delete item:", item.id, e);
-    }
-  }
-  logger.log(`✅ Deleted ${successCount} items, ${errorCount} errors`);
-  if (errorCount > 0) throw new Error(`Failed to delete ${errorCount} items`);
 }
 
 // ======= HELPERS =======
@@ -498,71 +346,40 @@ function debounce(fn, wait = 150) {
 }
 
 function showNotification(message, isSuccess = true) {
-  requestAnimationFrame(() => {
-    const notif = cachedElements.notifikasi;
-    if (!notif) return;
-    notif.textContent = message;
+  const notif = cachedElements.notifikasi;
+  if (!notif) return;
+  notif.textContent = message;
+  notif.className = `mb-4 md:mb-6 text-center p-3 md:p-4 rounded-xl transition-all duration-300 ${
+    isSuccess ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+  }`;
+  setTimeout(() => {
+    notif.textContent = "";
     notif.className =
-      "mb-4 md:mb-6 text-center p-3 md:p-4 rounded-xl transition-all duration-300 show";
-
-    if (isSuccess) {
-      notif.classList.add("bg-green-50", "border-green-200", "text-green-700");
-    } else {
-      notif.classList.add("bg-red-50", "border-red-200", "text-red-700");
-    }
-
-    setTimeout(() => {
-      notif.classList.remove("show");
-      setTimeout(() => {
-        notif.textContent = "";
-        notif.className =
-          "mb-4 md:mb-6 text-center p-3 md:p-4 rounded-xl transition-all duration-300";
-      }, 300);
-    }, 3000);
-  });
+      "mb-4 md:mb-6 text-center p-3 md:p-4 rounded-xl transition-all duration-300";
+  }, 2500);
 }
 
 async function muatDropdown(kategori = "kategori1") {
   const select = cachedElements.donatur;
   const names = kategoriDonatur[kategori] || [];
-  // Donatur belum diinput
   const belum = names.filter((n) => !donaturTerinput[kategori]?.has(n));
 
-  // Kosongkan dengan cara paling cepat
-  if (select) {
-    // gunakan fragment untuk performa
-    select.innerHTML = "";
-    const frag = document.createDocumentFragment();
+  select.innerHTML = "";
+  const frag = document.createDocumentFragment();
 
-    if (belum.length === 0) {
-      const opt = new Option("🎉 Semua donatur sudah diinput", "");
-      opt.disabled = true;
-      frag.appendChild(opt);
-      cachedElements.btnTambah.disabled = true;
-      if (cachedElements.btnTambah.querySelector("#btnText"))
-        cachedElements.btnTambah.querySelector("#btnText").textContent =
-          "Selesai";
-      cachedElements.pemasukan.disabled = true;
-    } else {
-      // tambahkan first selected langsung
-      const first = belum[0];
-      frag.appendChild(new Option(first, first));
-      for (let i = 1; i < belum.length; i++)
-        frag.appendChild(new Option(belum[i], belum[i]));
-      cachedElements.btnTambah.disabled = false;
-      if (cachedElements.btnTambah.querySelector("#btnText"))
-        cachedElements.btnTambah.querySelector("#btnText").textContent =
-          "Tambah";
-      cachedElements.pemasukan.disabled = false;
-    }
-
-    select.appendChild(frag);
-
-    // trigger ringan, tapi tunda sedikit
-    setTimeout(() => {
-      select.dispatchEvent(new Event("change"));
-    }, 8);
+  if (belum.length === 0) {
+    const opt = new Option("🎉 Semua donatur sudah diinput", "");
+    opt.disabled = true;
+    frag.appendChild(opt);
+    cachedElements.btnTambah.disabled = true;
+    cachedElements.pemasukan.disabled = true;
+  } else {
+    for (const n of belum) frag.appendChild(new Option(n, n));
+    cachedElements.btnTambah.disabled = false;
+    cachedElements.pemasukan.disabled = false;
   }
+
+  select.appendChild(frag);
 }
 
 function getSortedDataDonasi(kategori) {
@@ -578,94 +395,56 @@ function renderTabelTerurut(kategori) {
   const tbody = cachedElements.tabelDonasi.querySelector("tbody");
   const sorted = getSortedDataDonasi(kategori);
 
-  // clear fast
-  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-
-  if (sorted.length === 0) {
+  tbody.innerHTML = "";
+  if (!sorted.length) {
     const r = document.createElement("tr");
-    const c = document.createElement("td");
-    c.colSpan = 3;
-    c.className = "py-8 text-center text-gray-500";
-    c.innerHTML =
-      '<i class="fas fa-inbox text-4xl mb-2 block"></i><span>Tidak ada data untuk ditampilkan</span>';
-    r.appendChild(c);
+    r.innerHTML = `<td colspan="3" class="py-6 text-center text-gray-500"><i class="fas fa-inbox text-3xl mb-2"></i><div>Tidak ada data</div></td>`;
     tbody.appendChild(r);
     return;
   }
 
   const frag = document.createDocumentFragment();
-
   for (const item of sorted) {
-    const row = document.createElement("tr");
-    row.className = "hover:bg-gray-50 transition-colors";
-
-    // donatur
-    const dCell = document.createElement("td");
-    dCell.className = "py-3 md:py-4 px-4 md:px-6";
-    dCell.textContent = item.donatur;
-    row.appendChild(dCell);
-
-    // nominal
-    const nCell = document.createElement("td");
-    nCell.className = "py-3 md:py-4 px-4 md:px-6 text-right font-mono";
-    if (parseInt(item.nominal) === 0) {
-      nCell.textContent = "Tidak Mengisi";
-      nCell.classList.add("text-gray-400", "italic");
-    } else {
-      nCell.textContent = "Rp " + Number(item.nominal).toLocaleString("id-ID");
-    }
-    row.appendChild(nCell);
-
-    // aksi
-    const aCell = document.createElement("td");
-    aCell.className = "py-3 md:py-4 px-4 md:px-6 text-center";
-
-    const editBtn = document.createElement("button");
-    editBtn.innerHTML = '<i class="fas fa-edit"></i>';
-    editBtn.className =
-      "bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-lg transition duration-200 mx-1";
-    editBtn.onclick = () => editRow(row, kategori, item.donatur, item.id);
-    aCell.appendChild(editBtn);
-
-    const delBtn = document.createElement("button");
-    delBtn.innerHTML = '<i class="fas fa-trash"></i>';
-    delBtn.className =
-      "bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg transition duration-200 mx-1";
-    delBtn.onclick = () => hapusRow(kategori, item.donatur, item.id);
-    aCell.appendChild(delBtn);
-
-    row.appendChild(aCell);
-
-    frag.appendChild(row);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="py-3 px-4">${item.donatur}</td>
+      <td class="py-3 px-4 text-right font-mono">${
+        parseInt(item.nominal) === 0
+          ? "<span class='text-gray-400 italic'>Tidak Mengisi</span>"
+          : "Rp " + Number(item.nominal).toLocaleString("id-ID")
+      }</td>
+      <td class="py-3 px-4 text-center">
+        <button class="bg-amber-500 text-white p-2 rounded-lg mx-1" onclick="editRow(this,'${kategori}','${
+      item.donatur
+    }',${item.id})"><i class="fas fa-edit"></i></button>
+        <button class="bg-red-500 text-white p-2 rounded-lg mx-1" onclick="hapusRow('${kategori}','${
+      item.donatur
+    }',${item.id})"><i class="fas fa-trash"></i></button>
+      </td>`;
+    frag.appendChild(tr);
   }
-
   tbody.appendChild(frag);
 }
 
 function updateTotalDisplay() {
-  let total = 0;
-  for (let i = 0; i < dataDonasi.length; i++)
-    total += Number(dataDonasi[i].nominal);
-  if (cachedElements.totalDonasi)
-    cachedElements.totalDonasi.textContent =
-      "Rp " + total.toLocaleString("id-ID");
+  const total = dataDonasi.reduce((s, it) => s + Number(it.nominal), 0);
+  cachedElements.totalDonasi.textContent =
+    "Rp " + total.toLocaleString("id-ID");
 }
 
 function updateDataCount() {
-  if (cachedElements.dataCount)
-    cachedElements.dataCount.textContent = `${dataDonasi.length} data`;
+  cachedElements.dataCount.textContent = `${dataDonasi.length} data`;
 }
 
 function generateCSVContent(sortedData, kategori) {
   let csv = "Nama,Nominal,Tanggal,Kategori\n";
-  for (let i = 0; i < sortedData.length; i++) {
-    const item = sortedData[i];
+  sortedData.forEach((item) => {
     const nominal =
       item.nominal === "0"
         ? "Tidak Mengisi"
         : `Rp ${Number(item.nominal).toLocaleString("id-ID")}`;
     csv += `"${item.donatur}","${nominal}","${item.tanggal}","${kategoriLabel[kategori]}"\n`;
-  }
+  });
   const total = sortedData.reduce((s, it) => s + Number(it.nominal), 0);
   csv += `\n"Total","Rp ${total.toLocaleString("id-ID")}","",""`;
   return csv;
@@ -684,95 +463,38 @@ function downloadCSV(csvContent, kategori) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function editRow(row, kategori, donaturLama, itemId) {
-  const nominalCell = row.cells[1];
-  const aksiCell = row.cells[2];
-  const currentNominalText = nominalCell.textContent.replace(/[Rp\s.]/g, "");
-  const currentNominal =
-    currentNominalText === "TidakMengisi" ? "0" : currentNominalText || "0";
-
-  nominalCell.innerHTML = `<input type="number" id="editInput" value="${currentNominal}" min="0" class="w-24 md:w-32 px-3 py-2 border border-gray-300 rounded text-right font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500">`;
-
-  aksiCell.innerHTML = "";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.innerHTML = '<i class="fas fa-check"></i>';
-  saveBtn.className =
-    "bg-emerald-500 hover:bg-emerald-600 text-white p-2 rounded-lg transition duration-200 mx-1";
-  saveBtn.onclick = () =>
-    simpanEdit(
-      kategori,
-      donaturLama,
-      document.getElementById("editInput").value,
-      itemId
-    );
-  aksiCell.appendChild(saveBtn);
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.innerHTML = '<i class="fas fa-times"></i>';
-  cancelBtn.className =
-    "bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-lg transition duration-200 mx-1";
-  cancelBtn.onclick = () => loadDataHariIni(kategori);
-  aksiCell.appendChild(cancelBtn);
-
-  requestAnimationFrame(() => {
-    const editInput = document.getElementById("editInput");
-    if (editInput) {
-      editInput.focus();
-      editInput.select();
-    }
-  });
+async function editRow(btn, kategori, donatur, id) {
+  const tr = btn.closest("tr");
+  const nominalCell = tr.children[1];
+  const aksiCell = tr.children[2];
+  const current = nominalCell.textContent.replace(/[Rp\s.]/g, "") || "0";
+  nominalCell.innerHTML = `<input type="number" id="editInput" value="${current}" class="border p-1 w-24 text-right">`;
+  aksiCell.innerHTML = `
+    <button class="bg-emerald-500 text-white p-2 rounded-lg mx-1" onclick="simpanEdit('${kategori}','${donatur}',${id})"><i class="fas fa-check"></i></button>
+    <button class="bg-gray-500 text-white p-2 rounded-lg mx-1" onclick="loadDataHariIni('${kategori}')"><i class="fas fa-times"></i></button>`;
+  document.getElementById("editInput").focus();
 }
 
-async function simpanEdit(kategori, donaturLama, nominalBaru, itemId) {
-  try {
-    const tanggal = new Date().toLocaleDateString("id-ID");
-    if (itemId)
-      await db.updateDailyInput(itemId, { nominal: nominalBaru, tanggal });
-
-    const cachedItem = dataCache[kategori].get(donaturLama);
-    if (cachedItem)
-      dataCache[kategori].set(donaturLama, {
-        ...cachedItem,
-        nominal: nominalBaru,
-        tanggal,
-      });
-
-    const idx = dataDonasi.findIndex((it) => it.id === itemId);
-    if (idx !== -1) {
-      dataDonasi[idx].nominal = nominalBaru;
-      dataDonasi[idx].tanggal = tanggal;
-    }
-
-    requestAnimationFrame(() => {
-      renderTabelTerurut(kategori);
-      updateTotalDisplay();
-    });
-
-    await muatDropdown(kategori);
-    showNotification(`✅ Data ${donaturLama} berhasil diperbarui`, true);
-  } catch (e) {
-    logger.error("❌ simpanEdit error:", e);
-    showNotification("Gagal memperbarui data", false);
-  }
+async function simpanEdit(kategori, donatur, id) {
+  const nominalBaru = document.getElementById("editInput").value;
+  const tanggal = new Date().toLocaleDateString("id-ID");
+  await db.updateDailyInput(id, { nominal: nominalBaru, tanggal });
+  const cached = dataCache[kategori].get(donatur);
+  if (cached) cached.nominal = nominalBaru;
+  dataDonasi = Array.from(dataCache[kategori].values());
+  renderTabelTerurut(kategori);
+  updateTotalDisplay();
+  showNotification(`✅ Data ${donatur} diperbarui`, true);
 }
 
-async function hapusRow(kategori, donatur, itemId) {
+async function hapusRow(kategori, donatur, id) {
   if (!confirm(`Hapus data ${donatur}?`)) return;
-  try {
-    if (itemId) await db.deleteDailyInput(itemId);
-    dataCache[kategori].delete(donatur);
-    dataDonasi = dataDonasi.filter((it) => it.id !== itemId);
-    donaturTerinput[kategori].delete(donatur);
-    requestAnimationFrame(() => {
-      renderTabelTerurut(kategori);
-      updateTotalDisplay();
-      updateDataCount();
-    });
-    await muatDropdown(kategori);
-    showNotification(`🗑️ Data ${donatur} berhasil dihapus`, true);
-  } catch (e) {
-    logger.error("❌ hapusRow error:", e);
-    showNotification("Gagal menghapus data", false);
-  }
+  await db.deleteDailyInput(id);
+  dataCache[kategori].delete(donatur);
+  dataDonasi = Array.from(dataCache[kategori].values());
+  renderTabelTerurut(kategori);
+  updateTotalDisplay();
+  updateDataCount();
+  await muatDropdown(kategori);
+  showNotification(`🗑️ Data ${donatur} dihapus`, true);
 }
