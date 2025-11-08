@@ -362,21 +362,39 @@ function showNotification(message, isSuccess = true) {
 async function muatDropdown(kategori = "kategori1") {
   const select = cachedElements.donatur;
   const names = kategoriDonatur[kategori] || [];
-  const belum = names.filter((n) => !donaturTerinput[kategori]?.has(n));
+  const sudahInput = donaturTerinput[kategori] || new Set();
 
+  // Donatur yang belum diinput
+  const belum = names.filter((n) => !sudahInput.has(n));
+
+  // Kosongkan dropdown
   select.innerHTML = "";
   const frag = document.createDocumentFragment();
 
   if (belum.length === 0) {
+    // Semua donatur sudah diinput ✅
     const opt = new Option("🎉 Semua donatur sudah diinput", "");
     opt.disabled = true;
     frag.appendChild(opt);
     cachedElements.btnTambah.disabled = true;
     cachedElements.pemasukan.disabled = true;
+
+    // 🔹 Tampilkan tombol export data
+    if (cachedElements.btnExport) {
+      cachedElements.btnExport.classList.remove("hidden");
+      cachedElements.btnExport.style.display = "inline-block";
+    }
   } else {
+    // Masih ada donatur belum diinput
     for (const n of belum) frag.appendChild(new Option(n, n));
     cachedElements.btnTambah.disabled = false;
     cachedElements.pemasukan.disabled = false;
+
+    // 🔹 Sembunyikan tombol export data
+    if (cachedElements.btnExport) {
+      cachedElements.btnExport.classList.add("hidden");
+      cachedElements.btnExport.style.display = "none";
+    }
   }
 
   select.appendChild(frag);
