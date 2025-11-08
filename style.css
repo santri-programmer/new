@@ -1,0 +1,216 @@
+/* Performance Optimized Styles for Jimpitan App - FIXED VERSION */
+
+/* Hardware Acceleration & Performance Base - FIXED: Remove excessive will-change */
+* {
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  /* Hanya gunakan transform untuk hardware acceleration */
+  transform: translateZ(0);
+}
+
+/* Critical above-the-fold styles */
+.critical-show {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.critical-hidden {
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* Performance optimized elements - FIXED: Remove will-change */
+.performance-optimized {
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar dengan hardware acceleration */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c4b5fd;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a78bfa;
+}
+
+/* Table responsive styling dengan optimized rendering */
+@media (max-width: 768px) {
+  #tabelDonasi {
+    font-size: 0.875rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #tabelDonasi th,
+  #tabelDonasi td {
+    padding: 0.5rem 0.25rem;
+  }
+}
+
+/* Notification animations - FIXED: Limited will-change usage */
+#notifikasi {
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  /* Hanya gunakan will-change untuk elements yang benar-benar beranimasi */
+  will-change: transform, opacity;
+}
+
+#notifikasi.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Button hover effects dengan optimized transitions */
+button {
+  position: relative;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+button:active {
+  transform: scale(0.98);
+  transition-duration: 0.1s;
+}
+
+/* Input focus effects dengan performance */
+input:focus,
+select:focus {
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
+/* Loading state untuk buttons */
+button.loading {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+button.loading::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Optimized table row hover */
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+  background-color: rgba(249, 250, 251, 0.9);
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  .bg-gray-50 {
+    background: white !important;
+  }
+
+  .shadow-md {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+  }
+}
+
+/* Focus visible untuk keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+/* Tombol utama dengan optimized transitions */
+#btnExport,
+#btnHapus,
+#btnTambah {
+  padding: 0.5rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+#btnExport {
+  background-color: #16a34a;
+  color: white;
+}
+
+#btnExport:hover {
+  background-color: #15803d;
+  transform: translateY(-1px);
+}
+
+#btnHapus {
+  background-color: #dc2626;
+  color: white;
+}
+
+#btnHapus:hover {
+  background-color: #b91c1c;
+  transform: translateY(-1px);
+}
+
+#btnTambah {
+  background-color: #7c3aed;
+  color: white;
+}
+
+#btnTambah:hover {
+  background-color: #6d28d9;
+  transform: translateY(-1px);
+}
+
+/* Quick amount buttons optimization */
+.quick-amount {
+  transition: all 0.15s ease;
+}
+
+.quick-amount:active {
+  transform: scale(0.95);
+}
+
+/* Reduce paint area untuk animations */
+.hover\\:bg-gray-50:hover {
+  background-color: rgba(249, 250, 251, 0.9);
+}
