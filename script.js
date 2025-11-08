@@ -509,6 +509,7 @@ async function hapusRow(kategori, donatur, id) {
   if (!confirm(`Hapus data ${donatur}?`)) return;
   await db.deleteDailyInput(id);
   dataCache[kategori].delete(donatur);
+  donaturTerinput[kategori].delete(donatur);
   dataDonasi = Array.from(dataCache[kategori].values());
   renderTabelTerurut(kategori);
   updateTotalDisplay();
